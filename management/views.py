@@ -139,11 +139,28 @@ class DepartmentViewSet(viewsets.ModelViewSet):
     queryset = Department.objects.all()
     serializer_class = DepartmentSerializer
     permission_classes = [IsAuthenticated]
-    
+
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
             return [IsAdmin()]
         return [IsAuthenticated()]
+
+    def get_queryset(self):
+        qs = Department.objects.all()
+        name = self.request.query_params.get('name')
+        if name:
+            qs = qs.filter(name__icontains=name)
+        return qs
+
+    @action(detail=True, methods=['get'])
+    def doctors(self, request, pk=None):
+        department = self.get_object()
+        doctors = department.doctors.all()
+        is_available = request.query_params.get('is_available')
+        if is_available is not None:
+            doctors = doctors.filter(is_available=is_available.lower() == 'true')
+        from .serializers import DoctorSerializer
+        return Response(DoctorSerializer(doctors, many=True).data)
 
 
 class DoctorViewSet(viewsets.ModelViewSet):

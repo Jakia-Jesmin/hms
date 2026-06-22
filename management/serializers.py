@@ -80,9 +80,11 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 
 class DepartmentSerializer(serializers.ModelSerializer):
+    doctor_count = serializers.IntegerField(source='doctors.count', read_only=True)
+
     class Meta:
         model = Department
-        fields = '__all__'
+        fields = ('id', 'name', 'description', 'doctor_count')
 
 
 class DoctorSerializer(serializers.ModelSerializer):
