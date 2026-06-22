@@ -150,25 +150,62 @@ class DoctorViewSet(viewsets.ModelViewSet):
     queryset = Doctor.objects.all()
     serializer_class = DoctorSerializer
     permission_classes = [IsAuthenticated]
-    
+
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
             return [IsAdmin()]
         return [IsAuthenticated()]
-    
+
+    def get_queryset(self):
+        qs = Doctor.objects.all()
+
+        department_id = self.request.query_params.get('department_id')
+        specialization = self.request.query_params.get('specialization')
+        is_available = self.request.query_params.get('is_available')
+
+        if department_id:
+            qs = qs.filter(department_id=department_id)
+        if specialization:
+            qs = qs.filter(specialization__icontains=specialization)
+        if is_available is not None:
+            qs = qs.filter(is_available=is_available.lower() == 'true')
+
+        return qs
+
+    @action(detail=False, methods=['get'])
+    def available(self, request):
+        doctors = self.get_queryset().filter(is_available=True)
+        return Response(self.get_serializer(doctors, many=True).data)
+
+    @action(detail=False, methods=['get', 'patch'])
+    def my_profile(self, request):
+        try:
+            doctor = request.user.doctor_profile
+        except Doctor.DoesNotExist:
+            return Response(
+                {"error": "Doctor profile not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        if request.method == 'GET':
+            return Response(self.get_serializer(doctor).data)
+        serializer = self.get_serializer(doctor, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
     @action(detail=True, methods=['patch'])
     def toggle_availability(self, request, pk=None):
         doctor = self.get_object()
+        user = request.user
+        if user.role != 'admin' and getattr(user, 'doctor_profile', None) != doctor:
+            return Response(
+                {"error": "You can only toggle your own availability"},
+                status=status.HTTP_403_FORBIDDEN
+            )
         doctor.is_available = not doctor.is_available
         doctor.save()
-        serializer = self.get_serializer(doctor)
-        return Response(serializer.data)
-    
-    @action(detail=False, methods=['get'])
-    def available(self, request):
-        doctors = Doctor.objects.filter(is_available=True)
-        serializer = self.get_serializer(doctors, many=True)
-        return Response(serializer.data)
+        return Response(self.get_serializer(doctor).data)
 
 
 class PatientViewSet(viewsets.ModelViewSet):
@@ -184,10 +221,38 @@ class PatientViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         if user.role in ['admin', 'receptionist', 'doctor']:
-            return Patient.objects.all()
+            qs = Patient.objects.all()
         elif user.role == 'patient':
-            return Patient.objects.filter(user=user)
-        return Patient.objects.none()
+            qs = Patient.objects.filter(user=user)
+        else:
+            return Patient.objects.none()
+
+        gender = self.request.query_params.get('gender')
+        blood_group = self.request.query_params.get('blood_group')
+
+        if gender:
+            qs = qs.filter(gender=gender)
+        if blood_group:
+            qs = qs.filter(blood_group=blood_group)
+
+        return qs
+
+    @action(detail=False, methods=['get', 'patch'])
+    def my_profile(self, request):
+        try:
+            patient = request.user.patient_profile
+        except Patient.DoesNotExist:
+            return Response(
+                {"error": "Patient profile not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        if request.method == 'GET':
+            return Response(self.get_serializer(patient).data)
+        serializer = self.get_serializer(patient, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class AppointmentViewSet(viewsets.ModelViewSet):

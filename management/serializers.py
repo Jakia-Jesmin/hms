@@ -88,35 +88,35 @@ class DepartmentSerializer(serializers.ModelSerializer):
 class DoctorSerializer(serializers.ModelSerializer):
     user_details = UserSerializer(source='user', read_only=True)
     user_id = serializers.PrimaryKeyRelatedField(
-        source='user', 
+        source='user',
         queryset=User.objects.filter(role='doctor'),
         write_only=True
     )
     department_name = serializers.CharField(source='department.name', read_only=True)
     full_name = serializers.CharField(source='user.get_full_name', read_only=True)
-    
+
     class Meta:
         model = Doctor
-        fields = ('id', 'user', 'user_id', 'user_details', 'full_name', 
-                 'department', 'department_name', 'specialization', 
-                 'phone', 'experience', 'is_available')
-        read_only_fields = ('id',)
+        fields = ('id', 'user', 'user_id', 'user_details', 'full_name',
+                  'department', 'department_name', 'specialization',
+                  'phone', 'experience', 'is_available')
+        read_only_fields = ('id', 'user')
 
 
 class PatientSerializer(serializers.ModelSerializer):
     user_details = UserSerializer(source='user', read_only=True)
     user_id = serializers.PrimaryKeyRelatedField(
-        source='user', 
+        source='user',
         queryset=User.objects.filter(role='patient'),
         write_only=True
     )
     full_name = serializers.CharField(source='user.get_full_name', read_only=True)
-    
+
     class Meta:
         model = Patient
         fields = ('id', 'user', 'user_id', 'user_details', 'full_name',
-                 'age', 'gender', 'blood_group', 'address', 'phone')
-        read_only_fields = ('id',)
+                  'age', 'gender', 'blood_group', 'address', 'phone')
+        read_only_fields = ('id', 'user')
 
 
 class AppointmentSerializer(serializers.ModelSerializer):
