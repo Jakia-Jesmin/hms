@@ -11,7 +11,7 @@ from .models import (
     PrescriptionMedicine, Bill
 )
 from .serializers import (
-    UserSerializer, RegisterSerializer, LoginSerializer,
+    UserSerializer, RegisterSerializer, LoginSerializer, ChangePasswordSerializer,
     DepartmentSerializer, DoctorSerializer, PatientSerializer,
     AppointmentSerializer, AppointmentStatusUpdateSerializer,
     PrescriptionSerializer, PrescriptionCreateSerializer,
@@ -83,6 +83,29 @@ class AuthViewSet(viewsets.GenericViewSet):
             return Response({"message": "Logged out successfully"})
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'])
+    def token_refresh(self, request):
+        from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+        serializer = TokenRefreshSerializer(data=request.data)
+        if serializer.is_valid():
+            return Response(serializer.validated_data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def change_password(self, request):
+        serializer = ChangePasswordSerializer(data=request.data)
+        if serializer.is_valid():
+            user = request.user
+            if not user.check_password(serializer.validated_data['old_password']):
+                return Response(
+                    {"old_password": "Incorrect password"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            user.set_password(serializer.validated_data['new_password'])
+            user.save()
+            return Response({"message": "Password changed successfully"})
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class UserViewSet(viewsets.ModelViewSet):

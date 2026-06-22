@@ -68,6 +68,17 @@ class LoginSerializer(serializers.Serializer):
         return attrs
 
 
+class ChangePasswordSerializer(serializers.Serializer):
+    old_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True, validators=[validate_password])
+    new_password_confirm = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        if attrs['new_password'] != attrs['new_password_confirm']:
+            raise serializers.ValidationError({"new_password": "Passwords do not match"})
+        return attrs
+
+
 class DepartmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Department
