@@ -330,28 +330,48 @@ class BillViewSet(viewsets.ModelViewSet):
     
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [IsAdmin() or IsReceptionist()]
+            return [IsAdminOrReceptionist()]
         return [IsAuthenticated()]
-    
+
     def get_queryset(self):
         user = self.request.user
-        if user.role == 'admin' or user.role == 'receptionist':
-            return Bill.objects.all()
+        if user.role in ['admin', 'receptionist']:
+            qs = Bill.objects.all()
         elif user.role == 'patient':
-            return Bill.objects.filter(patient__user=user)
-        return Bill.objects.none()
-    
+            qs = Bill.objects.filter(patient__user=user)
+        else:
+            return Bill.objects.none()
+
+        patient_id = self.request.query_params.get('patient_id')
+        paid = self.request.query_params.get('paid')
+
+        if patient_id:
+            qs = qs.filter(patient_id=patient_id)
+        if paid is not None:
+            qs = qs.filter(paid=paid.lower() == 'true')
+
+        return qs
+
     @action(detail=True, methods=['post'])
     def mark_paid(self, request, pk=None):
         bill = self.get_object()
-        
         if bill.paid:
             return Response(
                 {"error": "Bill is already paid"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
         bill.paid = True
         bill.save()
-        serializer = self.get_serializer(bill)
-        return Response(serializer.data)
+        return Response(self.get_serializer(bill).data)
+
+    @action(detail=True, methods=['post'])
+    def mark_unpaid(self, request, pk=None):
+        bill = self.get_object()
+        if not bill.paid:
+            return Response(
+                {"error": "Bill is not paid yet"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        bill.paid = False
+        bill.save()
+        return Response(self.get_serializer(bill).data)
