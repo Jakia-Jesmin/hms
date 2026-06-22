@@ -175,17 +175,15 @@ class PatientViewSet(viewsets.ModelViewSet):
     queryset = Patient.objects.all()
     serializer_class = PatientSerializer
     permission_classes = [IsAuthenticated]
-    
+
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [IsAdmin() or IsReceptionist()]
+            return [IsAdminOrReceptionist()]
         return [IsAuthenticated()]
-    
+
     def get_queryset(self):
         user = self.request.user
-        if user.role == 'admin' or user.role == 'receptionist':
-            return Patient.objects.all()
-        elif user.role == 'doctor':
+        if user.role in ['admin', 'receptionist', 'doctor']:
             return Patient.objects.all()
         elif user.role == 'patient':
             return Patient.objects.filter(user=user)
@@ -196,43 +194,51 @@ class AppointmentViewSet(viewsets.ModelViewSet):
     queryset = Appointment.objects.all()
     serializer_class = AppointmentSerializer
     permission_classes = [IsAuthenticated]
-    
-    def get_permissions(self):
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [IsAuthenticated()]
-        return [IsAuthenticated()]
-    
+
     def get_queryset(self):
         user = self.request.user
-        if user.role == 'admin' or user.role == 'receptionist':
-            return Appointment.objects.all()
+        if user.role in ['admin', 'receptionist']:
+            qs = Appointment.objects.all()
         elif user.role == 'doctor':
-            return Appointment.objects.filter(doctor__user=user)
+            qs = Appointment.objects.filter(doctor__user=user)
         elif user.role == 'patient':
-            return Appointment.objects.filter(patient__user=user)
-        return Appointment.objects.none()
-    
-    def perform_create(self, serializer):
-        serializer.save()
-    
+            qs = Appointment.objects.filter(patient__user=user)
+        else:
+            return Appointment.objects.none()
+
+        # Support filtering via query params on the list endpoint
+        doctor_id = self.request.query_params.get('doctor_id')
+        patient_id = self.request.query_params.get('patient_id')
+        date = self.request.query_params.get('date')
+        status_filter = self.request.query_params.get('status')
+
+        if doctor_id:
+            qs = qs.filter(doctor_id=doctor_id)
+        if patient_id:
+            qs = qs.filter(patient_id=patient_id)
+        if date:
+            qs = qs.filter(appointment_date__date=date)
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+
+        return qs
+
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
         appointment = self.get_object()
-        
-        # Check permissions
         user = request.user
+
         if user.role not in ['admin', 'doctor', 'receptionist']:
             return Response(
                 {"error": "You don't have permission to update appointment status"},
                 status=status.HTTP_403_FORBIDDEN
             )
-        
         if user.role == 'doctor' and appointment.doctor.user != user:
             return Response(
                 {"error": "You can only update your own appointments"},
                 status=status.HTTP_403_FORBIDDEN
             )
-        
+
         serializer = AppointmentStatusUpdateSerializer(
             data=request.data,
             context={'appointment': appointment}
@@ -242,77 +248,47 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             appointment.save()
             return Response(AppointmentSerializer(appointment).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
         appointment = self.get_object()
-        
-        # Check permissions
         user = request.user
-        if user.role not in ['admin', 'doctor', 'patient', 'receptionist']:
-            return Response(
-                {"error": "You don't have permission to cancel appointments"},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
+
         if user.role == 'doctor' and appointment.doctor.user != user:
             return Response(
                 {"error": "You can only cancel your own appointments"},
                 status=status.HTTP_403_FORBIDDEN
             )
-        
         if user.role == 'patient' and appointment.patient.user != user:
             return Response(
                 {"error": "You can only cancel your own appointments"},
                 status=status.HTTP_403_FORBIDDEN
             )
-        
         if appointment.status in ['cancelled', 'completed']:
             return Response(
-                {"error": f"Cannot cancel appointment with status '{appointment.status}'"},
+                {"error": f"Cannot cancel an appointment with status '{appointment.status}'"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         appointment.status = 'cancelled'
         appointment.save()
         return Response(AppointmentSerializer(appointment).data)
-    
-    @action(detail=False, methods=['get'])
-    def filter(self, request):
-        queryset = self.get_queryset()
-        
-        doctor_id = request.query_params.get('doctor_id')
-        patient_id = request.query_params.get('patient_id')
-        appointment_date = request.query_params.get('appointment_date')
-        status_filter = request.query_params.get('status')
-        
-        if doctor_id:
-            queryset = queryset.filter(doctor_id=doctor_id)
-        if patient_id:
-            queryset = queryset.filter(patient_id=patient_id)
-        if appointment_date:
-            queryset = queryset.filter(appointment_date__date=appointment_date)
-        if status_filter:
-            queryset = queryset.filter(status=status_filter)
-        
-        serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
 
 
 class PrescriptionViewSet(viewsets.ModelViewSet):
     queryset = Prescription.objects.all()
     permission_classes = [IsAuthenticated]
-    
+
     def get_serializer_class(self):
         if self.action == 'create':
             return PrescriptionCreateSerializer
         return PrescriptionSerializer
-    
+
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [IsAdmin() or IsDoctor()]
+            return [IsAdminOrDoctor()]
         return [IsAuthenticated()]
-    
+
     def get_queryset(self):
         user = self.request.user
         if user.role == 'admin':
@@ -322,16 +298,18 @@ class PrescriptionViewSet(viewsets.ModelViewSet):
         elif user.role == 'patient':
             return Prescription.objects.filter(appointment__patient__user=user)
         return Prescription.objects.none()
-    
-    def perform_create(self, serializer):
-        serializer.save()
 
 
-class MedicineViewSet(viewsets.ReadOnlyModelViewSet):
+class MedicineViewSet(viewsets.ModelViewSet):
     queryset = Medicine.objects.all()
     serializer_class = MedicineSerializer
     permission_classes = [IsAuthenticated]
-    
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsAdmin()]
+        return [IsAuthenticated()]
+
     @action(detail=False, methods=['get'])
     def search(self, request):
         query = request.query_params.get('q', '')
